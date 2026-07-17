@@ -6,7 +6,7 @@ import IqirForm from './pages/IqirForm';
 import CustomerMaster from './pages/CustomerMaster';
 import ModelMaster from './pages/ModelMaster';
 import CreateGrn from './pages/CreateGrn';
-
+import IqcDashboard from './pages/IqcDashboard';
 
 function App() {
   return (
@@ -22,6 +22,7 @@ function App() {
           <Button color="inherit" component={Link} to="/models">Models</Button>
           <Button color="inherit" component={Link} to="/store/grn">Store (GRN)</Button>
           <Button color="inherit" component={Link} to="/upload-bom">Upload BOM</Button>
+          <Button color="inherit" component={Link} to="/iqc">IQC Dashboard</Button>
           <Button color="inherit" component={Link} to="/iqir">New IQIR</Button>
         </Toolbar>
       </AppBar>
@@ -35,6 +36,7 @@ function App() {
           <Route path="/models" element={<ModelMaster />} />
           <Route path="/upload-bom" element={<BomUpload />} />
           <Route path="/iqir" element={<IqirForm />} />
+          <Route path="/iqc" element={<IqcDashboard />} />
         </Routes>
       </Container>
     </Router>

@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import { 
   Box, Typography, Paper, TextField, Button, Grid, MenuItem,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, 
-  IconButton, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Alert
+  IconButton, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Alert, Stack
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import SaveIcon from '@mui/icons-material/Save';
 import SendIcon from '@mui/icons-material/Send';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
+import * as XLSX from 'xlsx';
 import api from '../services/api';
 
 const getToday = () => new Date().toISOString().split('T')[0];
@@ -18,9 +21,9 @@ const CreateGrn = () => {
   const [header, setHeader] = useState(() => ({
     customerId: '',
     dcNumber: '',
-    dcDate: getToday(), // <-- Use the helper here
-    grnNumber: `GRN-${Date.now().toString().slice(-6)}`, 
-    grnDate: getToday(), // <-- And here
+    dcDate: getToday(),
+    grnNumber: `GRN-${Date.now().toString().slice(-6)}`,
+    grnDate: getToday(),
   }));
 
   // --- 2. Dynamic Grid State ---
@@ -34,7 +37,6 @@ const CreateGrn = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [storeRemarks, setStoreRemarks] = useState('');
 
-  // Fetch Customers on load
   useEffect(() => {
     const fetchCustomers = async () => {
       try {
@@ -48,9 +50,9 @@ const CreateGrn = () => {
     fetchCustomers();
   }, []);
 
-  // --- Grid Logic: Calculate Variance on the fly ---
+  // --- Grid Logic ---
   const calculateVariance = (dcQty, recQty) => {
-    if (recQty === '' || recQty === null) return '';
+    if (recQty === '' || recQty === null || recQty === undefined) return '';
     const dc = parseInt(dcQty) || 0;
     const rec = parseInt(recQty) || 0;
 
@@ -65,7 +67,6 @@ const CreateGrn = () => {
     const newItems = [...items];
     newItems[index][field] = value;
     
-    // Auto-update variance if quantities change
     if (field === 'dcQuantity' || field === 'receivedQuantity') {
       newItems[index].varianceStatus = calculateVariance(
         newItems[index].dcQuantity, 
@@ -82,11 +83,71 @@ const CreateGrn = () => {
     setItems(newItems.length ? newItems : [{ ...emptyRow }]);
   };
 
+  // --- EXCEL IMPORT / EXPORT LOGIC ---
+  const handleDownloadTemplate = () => {
+    const templateData = [{
+      "Part Number": "",
+      "Description": "",
+      "DC Quantity": "",
+      "Received Quantity": ""
+    }];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "GRN_Template");
+    XLSX.writeFile(wb, "GRN_Upload_Template.xlsx");
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        if (data.length === 0) {
+          setError("The uploaded Excel file is empty.");
+          return;
+        }
+
+        const parsedItems = data.map(row => {
+          const dcQty = row["DC Quantity"] ?? '';
+          const recQty = row["Received Quantity"] ?? '';
+          
+          return {
+            partNumber: row["Part Number"]?.toString() || '',
+            description: row["Description"]?.toString() || '',
+            dcQuantity: dcQty,
+            receivedQuantity: recQty,
+            varianceStatus: calculateVariance(dcQty, recQty)
+          };
+        }).filter(item => item.partNumber !== ''); // Skip completely blank rows
+
+        // Replace the default empty row, or append to existing rows
+        setItems(prev => {
+          const isDefaultEmpty = prev.length === 1 && prev[0].partNumber === '' && prev[0].receivedQuantity === '';
+          return isDefaultEmpty ? parsedItems : [...prev, ...parsedItems];
+        });
+        
+        setMessage("Excel data successfully imported!");
+        setTimeout(() => setMessage(null), 3000);
+      } catch (err) {
+        console.error(err);
+        setError("Failed to parse the Excel file. Please ensure you used the correct template.");
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = null; // Reset input so the same file can be uploaded again if needed
+  };
+
   // --- Submission Logic ---
   const handleInitialSubmit = (e) => {
     e.preventDefault();
-    
-    // Check if ANY item has a discrepancy
     const hasDiscrepancy = items.some(item => 
       item.varianceStatus === 'Shortage' || 
       item.varianceStatus === 'Excess' || 
@@ -94,9 +155,9 @@ const CreateGrn = () => {
     );
 
     if (hasDiscrepancy) {
-      setModalOpen(true); // Intercept and open email draft!
+      setModalOpen(true); 
     } else {
-      executeSaveGrn(false); // Save silently
+      executeSaveGrn(false); 
     }
   };
 
@@ -119,14 +180,23 @@ const CreateGrn = () => {
         }))
       };
 
+      // Find the customer's actual company name for the email
+      const selectedCustomer = customers.find(c => c.id === header.customerId);
+      const customerName = selectedCustomer ? selectedCustomer.companyName : 'Customer';
+
+      // 1. Save to the database first
       await api.post('/grns', payload); 
       
-      console.log("Saving GRN Payload:", payload);
+      // 2. If there's a discrepancy, draft the email with the customerName included
+      if (isDiscrepancyReported) {
+        generateEmailDraft(payload.dcNumber, storeRemarks, payload.items, customerName);
+      }
+
       setMessage("GRN Successfully Saved!");
       
-      // Reset Form
+      // 3. Reset Form safely
       setItems([{ ...emptyRow }]);
-      setHeader({ ...header, dcNumber: '', dcDate: getToday() }); // <-- Use helper here too
+      setHeader({ ...header, dcNumber: '', dcDate: getToday() });
       setStoreRemarks('');
       
     } catch (err) {
@@ -137,7 +207,41 @@ const CreateGrn = () => {
     }
   };
 
-  // Helper for chip colors
+  // --- NEW: Email Client Generator ---
+  const generateEmailDraft = (dcNum, remarks, allItems, customerName) => {
+    // 1. Filter down to only the problem items
+    const discrepantItems = allItems.filter(i => 
+      i.varianceStatus !== 'Matched' && i.varianceStatus !== ''
+    );
+
+    // 2. Generate and auto-download the Excel file
+    const excelData = discrepantItems.map(item => ({
+      "Part Number": item.partNumber,
+      "Variance Status": item.varianceStatus,
+      "Expected Quantity": item.dcQuantity || 0,
+      "Received Quantity": item.receivedQuantity
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Discrepancies");
+    XLSX.writeFile(wb, `Discrepancy_DC_${dcNum}.xlsx`);
+
+    // 3. Trigger the user's default email client
+    const subject = encodeURIComponent(`Discrepancy Report: ${customerName} - Delivery Challan ${dcNum}`);
+
+    let body = `Hello,\n\nWe have identified a discrepancy regarding ${customerName} Delivery Challan: ${dcNum}.\n\n`;
+    
+    if (remarks) {
+      body += `Store Manager Remarks:\n${remarks}\n\n`;
+    }
+
+    body += `Please see the attached Excel file for the complete breakdown of missing, excess, or unlisted parts.\n\n`;
+    body += `Please advise on the next steps.\n\nThank you.`;
+
+    window.location.href = `mailto:?subject=${subject}&body=${encodeURIComponent(body)}`;
+  };
+
   const getChipColor = (status) => {
     switch(status) {
       case 'Matched': return 'success';
@@ -192,7 +296,6 @@ const CreateGrn = () => {
                 InputLabelProps={{ shrink: true }}
               />
             </Grid>
-            {/* NEW: GRN Date Field */}
             <Grid item xs={12} md={3}>
               <TextField
                 label="GRN Date *" type="date" fullWidth required
@@ -206,7 +309,37 @@ const CreateGrn = () => {
 
         {/* DYNAMIC GRID SECTION */}
         <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
-          <Typography variant="h6" gutterBottom color="primary">2. Received Items Verification</Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6" color="primary">2. Received Items Verification</Typography>
+            
+            {/* EXCEL IMPORT TOOLBAR */}
+            <Stack direction="row" spacing={2}>
+              <Button 
+                variant="outlined" 
+                startIcon={<FileDownloadIcon />} 
+                onClick={handleDownloadTemplate}
+                size="small"
+              >
+                Download Template
+              </Button>
+              <Button 
+                variant="contained" 
+                component="label"
+                startIcon={<UploadFileIcon />}
+                size="small"
+                color="secondary"
+              >
+                Upload Excel
+                <input 
+                  type="file" 
+                  hidden 
+                  accept=".xlsx, .xls, .csv" 
+                  onChange={handleFileUpload} 
+                />
+              </Button>
+            </Stack>
+          </Box>
+
           <TableContainer>
             <Table size="small">
               <TableHead sx={{ backgroundColor: '#eeeeee' }}>
@@ -317,7 +450,6 @@ const CreateGrn = () => {
           </Button>
         </DialogActions>
       </Dialog>
-
     </Box>
   );
 };

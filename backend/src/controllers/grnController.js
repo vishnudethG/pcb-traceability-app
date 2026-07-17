@@ -73,3 +73,61 @@ const createGrn = async (req, res) => {
 module.exports = {
   createGrn
 };
+
+// @desc    Get all GRNs awaiting IQC
+// @route   GET /api/grns/pending
+const getPendingGrns = async (req, res) => {
+  try {
+    const pendingGrns = await prisma.grn.findMany({
+      where: {
+        status: 'Awaiting IQC'
+      },
+      include: {
+        customer: true, // Pulls in the company name
+        grnItems: true  // Pulls in the items so we can count 'Pending' vs 'Mapped'
+      },
+      orderBy: {
+        grnDate: 'asc' // Oldest GRNs first (First In, First Out)
+      }
+    });
+
+    res.status(200).json(pendingGrns);
+  } catch (error) {
+    console.error('Error fetching pending GRNs:', error);
+    res.status(500).json({ error: 'Internal Server Error while fetching pending GRNs.' });
+  }
+};
+
+// @desc    Get a single GRN by ID
+// @route   GET /api/grns/:id
+const getGrnById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const grn = await prisma.grn.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        customer: true,
+        grnItems: {
+          where: { status: 'Pending' } // We only want to map items that haven't been processed yet!
+        }
+      }
+    });
+
+    if (!grn) {
+      return res.status(404).json({ error: 'GRN not found' });
+    }
+
+    res.status(200).json(grn);
+  } catch (error) {
+    console.error('Error fetching GRN:', error);
+    res.status(500).json({ error: 'Internal Server Error while fetching GRN.' });
+  }
+};
+
+module.exports = {
+  createGrn,
+  getPendingGrns,
+  getGrnById,
+};
+
