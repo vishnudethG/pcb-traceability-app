@@ -7,6 +7,7 @@ import CustomerMaster from './pages/CustomerMaster';
 import ModelMaster from './pages/ModelMaster';
 import CreateGrn from './pages/CreateGrn';
 import IqcDashboard from './pages/IqcDashboard';
+import IqcInspect from './pages/IqcInspect';
 
 function App() {
   return (
@@ -37,6 +38,7 @@ function App() {
           <Route path="/upload-bom" element={<BomUpload />} />
           <Route path="/iqir" element={<IqirForm />} />
           <Route path="/iqc" element={<IqcDashboard />} />
+          <Route path="/iqc/inspect/:id" element={<IqcInspect />} />
         </Routes>
       </Container>
     </Router>
