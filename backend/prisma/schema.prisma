@@ -1,0 +1,195 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 1. User Management & Auth
+model User {
+  id             Int             @id @default(autoincrement())
+  username       String          @unique
+  passwordHash   String          @map("password_hash")
+  role           String          // 'Admin', 'IQC'
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  iqirRows       IqirRecord[]    // Track which inspector completed which row
+
+  @@map("users")
+}
+
+// 2. Customer Master
+model Customer {
+  id           Int      @id @default(autoincrement())
+  companyName  String   @unique @map("company_name")
+  customerCode String   @unique @map("customer_code")
+  createdAt    DateTime @default(now()) @map("created_at")
+  
+  models       Model[]
+  grns         Grn[]
+
+  @@map("customers")
+}
+
+model Grn {
+  id                  Int       @id @default(autoincrement())
+  customerId          Int       @map("customer_id")
+  dcNumber            String    @map("dc_number")
+  dcDate              DateTime  @map("dc_date")
+  grnNumber           String    @map("grn_number")
+  grnDate             DateTime  @map("grn_date")
+  
+  // Discrepancy Tracking
+  discrepancyReported Boolean   @default(false) @map("discrepancy_reported")
+  storeRemarks        String?   @db.Text @map("store_remarks") // General context added to the email
+  
+  status              String    @default("Awaiting IQC") // "Awaiting IQC" or "Closed"
+  
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  customer            Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  grnItems            GrnItem[]
+
+  @@unique([grnNumber]) 
+  @@map("grns")
+}
+
+model GrnItem {
+  id               Int       @id @default(autoincrement())
+  grnId            Int       @map("grn_id")
+  partNumber       String    @map("part_number")
+  
+  // The Store Quantity Reconciliation
+  dcQuantity       Int?      @map("dc_quantity") 
+  receivedQuantity Int       @map("received_quantity")
+  varianceStatus   String    @map("variance_status") // "Matched", "Shortage", "Excess", "Unlisted"
+  
+  // NEW: Item-level description/remarks
+  description      String?   @db.Text @map("description") 
+  
+  // The Item Lifecycle State Machine
+  status           String    @default("Pending") // "Pending", "Mapped", "Rejected"
+  
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  grn              Grn       @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  
+  @@map("grn_items")
+}
+
+// 3. Models (Projects) Table
+model Model {
+  id          Int           @id @default(autoincrement())
+  customerId  Int           @map("customer_id")
+  projectName String        @map("project_name")
+  // NOTE: bomVersion is GONE from here!
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  customer    Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  revisions   BomRevision[] // Links to all the versions (Rev A, Rev B)
+
+  // A customer can only have one project with the exact same name
+  @@unique([customerId, projectName]) 
+  @@map("models")
+}
+
+// 4. NEW: BOM Revisions Table (Handles ECOs and Versioning)
+model BomRevision {
+  id          Int       @id @default(autoincrement())
+  modelId     Int       @map("model_id")
+  versionName String    @map("version_name") // e.g., 'Rev A'
+  isActive    Boolean   @default(true) @map("is_active") // For Soft Deletes!
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  model       Model           @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  bomItems    BomItem[]
+  inspections InspectionLot[] // Inspections are now tied to the specific REVISION, not the generic model
+
+  // A model can only have one "Rev A"
+  @@unique([modelId, versionName])
+  @@map("bom_revisions")
+}
+
+// 5. BOM Items Table (The Individual Components)
+model BomItem {
+  id                Int       @id @default(autoincrement())
+  bomRevisionId     Int       @map("bom_revision_id") // CHANGED from modelId
+  mpn               String
+  designator        String
+  manufacturer      String?
+  description       String?
+  value             String?
+  quantityPerBoard  Int       @map("quantity_per_board")
+  alternativePartNo String?   @map("alternative_part_no")
+  package           String?
+  tolerance         String?
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  bomRevision       BomRevision  @relation(fields: [bomRevisionId], references: [id], onDelete: Cascade)
+  iqirRecords       IqirRecord[]
+
+  @@map("bom_items")
+}
+
+// 6. Document Control Settings (Universal Format Fields)
+model DocumentSetting {
+  id              Int             @id @default(autoincrement())
+  documentNo      String          @map("document_no")
+  revisionNumber  String          @map("revision_number")
+  revisionDate    DateTime        @map("revision_date")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  inspectionLots  InspectionLot[]
+
+  @@map("document_settings")
+}
+
+// 7. Inspection Lots Table (The Header of an IQIR Report)
+model InspectionLot {
+  id                Int       @id @default(autoincrement())
+  bomRevisionId     Int       @map("bom_revision_id") // CHANGED from modelId
+  documentSettingId Int       @map("document_setting_id")
+  customerDcNumber  String    @map("customer_dc_number")
+  workOrderNumber   String    @map("work_order_number")
+  workOrderDate     DateTime  @map("work_order_date")
+  kitQuantity       Int       @map("kit_quantity")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  bomRevision       BomRevision     @relation(fields: [bomRevisionId], references: [id], onDelete: Cascade)
+  documentSetting   DocumentSetting @relation(fields: [documentSettingId], references: [id])
+  iqirRecords       IqirRecord[]
+
+  @@map("inspection_lots")
+}
+
+// 8. IQIR Records Table (The Table Rows for measured contents)
+model IqirRecord {
+  id                Int           @id @default(autoincrement())
+  inspectionLotId   Int           @map("inspection_lot_id")
+  bomItemId         Int           @map("bom_item_id")
+  receivedMake      String        @map("received_make")
+  receivedMpn       String        @map("received_mpn")
+  measuredValue     String        @map("measured_value")
+  bodymarkPackage   String        @map("bodymark_package")
+  dateCodeLotNumber String        @map("date_code_lot_number")
+  mslLevel          String        @map("msl_level")
+  measuredTolerance String?       @map("measured_tolerance")
+  voltage           String?       @map("voltage")
+  mslLevelCondition String?       @map("msl_level_condition")
+  inspectorId       Int           @map("inspector_id")
+  status            String        // 'Accepted' or 'Rejected'
+  remarks           String?       @map("remarks")
+
+  inspectionLot     InspectionLot @relation(fields: [inspectionLotId], references: [id], onDelete: Cascade)
+  bomItem           BomItem       @relation(fields: [bomItemId], references: [id])
+  inspector         User          @relation(fields: [inspectorId], references: [id])
+
+  @@map("iqir_records")
+}

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BOM Upload Test</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 500px; }
+        div { margin-bottom: 10px; }
+        label { display: inline-block; width: 120px; font-weight: bold; }
+        input { padding: 5px; width: 200px; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
+        pre { background: #eee; padding: 10px; margin-top: 20px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+
+    <h2>Test BOM Upload API</h2>
+
+    <form id="uploadForm">
+        <div>
+            <label>Customer ID:</label>
+            <input type="number" id="customerId" value="1" required>
+        </div>
+        <div>
+            <label>Project Name:</label>
+            <input type="text" id="projectName" value="Alpha Board" required>
+        </div>
+        <div>
+            <label>BOM Version:</label>
+            <input type="text" id="bomVersion" value="Rev A" required>
+        </div>
+        <div>
+            <label>Excel/CSV File:</label>
+            <input type="file" id="file" accept=".xlsx, .csv" required>
+        </div>
+        <button type="submit">Upload BOM</button>
+    </form>
+
+    <div id="resultBox" style="display: none;">
+        <h3>Server Response:</h3>
+        <pre id="responseOutput"></pre>
+    </div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault(); // Prevent page reload
+            
+            const fileInput = document.getElementById('file');
+            if (fileInput.files.length === 0) return alert("Please select a file!");
+
+            // 1. Build the form data payload
+            const formData = new FormData();
+            formData.append('customerId', document.getElementById('customerId').value);
+            formData.append('projectName', document.getElementById('projectName').value);
+            formData.append('bomVersion', document.getElementById('bomVersion').value);
+            formData.append('file', fileInput.files[0]);
+
+            // 2. Send the HTTP POST request to our Node.js backend
+            try {
+                const response = await fetch('http://localhost:5000/api/boms/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                
+                // 3. Display the result
+                document.getElementById('resultBox').style.display = 'block';
+                document.getElementById('responseOutput').textContent = JSON.stringify(data, null, 2);
+                
+            } catch (error) {
+                alert("Error connecting to server. Is your Node app running?");
+            }
+        });
+    </script>
+</body>
+</html>
