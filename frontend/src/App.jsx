@@ -8,6 +8,7 @@ import ModelMaster from './pages/ModelMaster';
 import CreateGrn from './pages/CreateGrn';
 import IqcDashboard from './pages/IqcDashboard';
 import IqcInspect from './pages/IqcInspect';
+import IqcForm from './pages/IqcForm';
 
 function App() {
   return (
@@ -39,6 +40,7 @@ function App() {
           <Route path="/iqir" element={<IqirForm />} />
           <Route path="/iqc" element={<IqcDashboard />} />
           <Route path="/iqc/inspect/:id" element={<IqcInspect />} />
+          <Route path="/iqc/form" element={<IqcForm />} />
         </Routes>
       </Container>
     </Router>

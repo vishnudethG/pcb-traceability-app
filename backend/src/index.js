@@ -6,6 +6,7 @@ const modelRoutes = require('./routes/modelRoutes');
 const iqirRoutes = require('./routes/iqirRoutes');
 const grnRoutes = require('./routes/grnRoutes');
 
+
 // Import Routes
 const customerRoutes = require('./routes/customerRoutes');
 
@@ -22,6 +23,7 @@ app.use('/api/boms', bomRoutes);
 app.use('/api/models', modelRoutes);
 app.use('/api/grns', grnRoutes);
 app.use('/api/iqir', iqirRoutes);
+app.use('/api/inspections', require('./routes/inspectionRoutes'));
 
 // Basic Health Check Route
 app.get('/api/health', (req, res) => {
