@@ -2,7 +2,6 @@ import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { AppBar, Toolbar, Typography, Button, Container } from '@mui/material';
 import BomUpload from './pages/BomUpload';
 import Dashboard from './pages/Dashboard';
-import IqirForm from './pages/IqirForm';
 import CustomerMaster from './pages/CustomerMaster';
 import ModelMaster from './pages/ModelMaster';
 import CreateGrn from './pages/CreateGrn';
@@ -25,7 +24,6 @@ function App() {
           <Button color="inherit" component={Link} to="/store/grn">Store (GRN)</Button>
           <Button color="inherit" component={Link} to="/upload-bom">Upload BOM</Button>
           <Button color="inherit" component={Link} to="/iqc">IQC Dashboard</Button>
-          <Button color="inherit" component={Link} to="/iqir">New IQIR</Button>
         </Toolbar>
       </AppBar>
 
@@ -37,7 +35,6 @@ function App() {
           <Route path="/store/grn" element={<CreateGrn />} />
           <Route path="/models" element={<ModelMaster />} />
           <Route path="/upload-bom" element={<BomUpload />} />
-          <Route path="/iqir" element={<IqirForm />} />
           <Route path="/iqc" element={<IqcDashboard />} />
           <Route path="/iqc/inspect/:id" element={<IqcInspect />} />
           <Route path="/iqc/form" element={<IqcForm />} />
