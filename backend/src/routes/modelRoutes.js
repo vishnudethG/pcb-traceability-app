@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { createModel, getModels, getBomByModelId, getModelRevisions } = require('../controllers/modelController');
+const { createModel, getModels, getBomByModelId, getModelRevisions, updateModel, deleteModel } = require('../controllers/modelController');
 
 router.route('/')
   .post(createModel)
@@ -11,5 +11,8 @@ router.route('/:id/bom')
 
 router.route('/:id/revisions')
   .get(getModelRevisions);
+
+router.put('/:id', updateModel);
+router.delete('/:id', deleteModel);
 
 module.exports = router;

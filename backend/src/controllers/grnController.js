@@ -1,6 +1,5 @@
 const prisma = require('../prismaClient');
 
-
 // @desc    Create a new GRN with items
 // @route   POST /api/grns
 const createGrn = async (req, res) => {
@@ -14,15 +13,11 @@ const createGrn = async (req, res) => {
       return res.status(400).json({ error: 'Customer, DC Number, and at least one item are required.' });
     }
 
-    // Best Practice: Generate the official GRN Number on the server, not the frontend
     const timestamp = Date.now().toString().slice(-6);
     const serverGrnNumber = `GRN-${timestamp}-${Math.floor(Math.random() * 100)}`;
     const serverGrnDate = new Date();
 
-    // Execute the database transaction
     const result = await prisma.$transaction(async (tx) => {
-      
-      // Step 1: Create the GRN Header
       const newGrn = await tx.grn.create({
         data: {
           customerId: parseInt(customerId),
@@ -36,7 +31,6 @@ const createGrn = async (req, res) => {
         }
       });
 
-      // Step 2: Map the frontend array into the database format
       const grnItemsData = items.map(item => ({
         grnId: newGrn.id,
         partNumber: item.partNumber,
@@ -44,34 +38,33 @@ const createGrn = async (req, res) => {
         receivedQuantity: parseInt(item.receivedQuantity),
         varianceStatus: item.varianceStatus,
         description: item.description || null,
-        status: 'Pending' // The starting state for the IQC Inspector
+        status: 'Pending' 
       }));
 
-      // Step 3: Bulk insert all the items
-      await tx.grnItem.createMany({
-        data: grnItemsData
-      });
-
+      await tx.grnItem.createMany({ data: grnItemsData });
       return newGrn;
     });
 
-    res.status(201).json({ 
-      message: 'GRN successfully saved', 
-      grn: result,
-      totalItems: items.length
-    });
-
+    res.status(201).json({ message: 'GRN successfully saved', grn: result });
   } catch (error) {
     console.error('Error creating GRN:', error);
-    if (error.code === 'P2002') {
-      return res.status(400).json({ error: 'A GRN with this number already exists.' });
-    }
     res.status(500).json({ error: 'Internal Server Error while saving GRN.' });
   }
 };
 
-module.exports = {
-  createGrn
+// @desc    Get all GRNs (For the new Master List)
+// @route   GET /api/grns
+const getAllGrns = async (req, res) => {
+  try {
+    const grns = await prisma.grn.findMany({
+      include: { customer: true },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.status(200).json(grns);
+  } catch (error) {
+    console.error('Error fetching GRNs:', error);
+    res.status(500).json({ error: 'Internal Server Error.' });
+  }
 };
 
 // @desc    Get all GRNs awaiting IQC
@@ -79,22 +72,14 @@ module.exports = {
 const getPendingGrns = async (req, res) => {
   try {
     const pendingGrns = await prisma.grn.findMany({
-      where: {
-        status: 'Awaiting IQC'
-      },
-      include: {
-        customer: true, // Pulls in the company name
-        grnItems: true  // Pulls in the items so we can count 'Pending' vs 'Mapped'
-      },
-      orderBy: {
-        grnDate: 'asc' // Oldest GRNs first (First In, First Out)
-      }
+      where: { status: 'Awaiting IQC' },
+      include: { customer: true, grnItems: true },
+      orderBy: { grnDate: 'asc' }
     });
-
     res.status(200).json(pendingGrns);
   } catch (error) {
     console.error('Error fetching pending GRNs:', error);
-    res.status(500).json({ error: 'Internal Server Error while fetching pending GRNs.' });
+    res.status(500).json({ error: 'Internal Server Error.' });
   }
 };
 
@@ -103,31 +88,78 @@ const getPendingGrns = async (req, res) => {
 const getGrnById = async (req, res) => {
   try {
     const { id } = req.params;
-    
     const grn = await prisma.grn.findUnique({
       where: { id: parseInt(id) },
       include: {
         customer: true,
-        grnItems: {
-          where: { status: 'Pending' } // We only want to map items that haven't been processed yet!
-        }
+        grnItems: true // Include all items for editing
       }
     });
 
-    if (!grn) {
-      return res.status(404).json({ error: 'GRN not found' });
-    }
-
+    if (!grn) return res.status(404).json({ error: 'GRN not found' });
     res.status(200).json(grn);
   } catch (error) {
     console.error('Error fetching GRN:', error);
-    res.status(500).json({ error: 'Internal Server Error while fetching GRN.' });
+    res.status(500).json({ error: 'Internal Server Error.' });
+  }
+};
+
+// @desc    Update a GRN
+// @route   PUT /api/grns/:id
+const updateGrn = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { customerId, dcNumber, dcDate, items } = req.body;
+
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Update Header
+      const updatedGrn = await tx.grn.update({
+        where: { id: parseInt(id) },
+        data: {
+          customerId: parseInt(customerId),
+          dcNumber,
+          dcDate: new Date(dcDate),
+        }
+      });
+
+      // 2. Wipe old items and insert new ones (Safest way to handle dynamic grid edits)
+      await tx.grnItem.deleteMany({ where: { grnId: parseInt(id) } });
+
+      const grnItemsData = items.map(item => ({
+        grnId: parseInt(id),
+        partNumber: item.partNumber,
+        dcQuantity: item.dcQuantity ? parseInt(item.dcQuantity) : null,
+        receivedQuantity: parseInt(item.receivedQuantity),
+        varianceStatus: item.varianceStatus,
+        description: item.description || null,
+        status: item.status || 'Pending' 
+      }));
+
+      await tx.grnItem.createMany({ data: grnItemsData });
+      return updatedGrn;
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error updating GRN:', error);
+    res.status(500).json({ error: 'Failed to update GRN.' });
+  }
+};
+
+// @desc    Delete a GRN
+// @route   DELETE /api/grns/:id
+const deleteGrn = async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Cascade delete in schema will automatically delete linked grnItems
+    await prisma.grn.delete({ where: { id: parseInt(id) } });
+    res.status(200).json({ message: 'GRN deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting GRN:', error);
+    res.status(500).json({ error: 'Failed to delete GRN.' });
   }
 };
 
 module.exports = {
-  createGrn,
-  getPendingGrns,
-  getGrnById,
+  createGrn, getAllGrns, getPendingGrns, getGrnById, updateGrn, deleteGrn
 };
-

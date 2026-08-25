@@ -90,9 +90,58 @@ const getModelRevisions = async (req, res) => {
   }
 };
 
+// @desc    Update a model
+// @route   PUT /api/models/:id
+const updateModel = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { customerId, projectName } = req.body;
+
+    if (!customerId || !projectName) {
+      return res.status(400).json({ error: 'Customer and Project Name are required.' });
+    }
+
+    const updatedModel = await prisma.model.update({
+      where: { id: parseInt(id) },
+      data: {
+        customerId: parseInt(customerId),
+        projectName,
+      },
+      include: { customer: true }
+    });
+
+    res.status(200).json(updatedModel);
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(400).json({ error: 'This Project Name already exists for this customer.' });
+    }
+    console.error('Error updating model:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+// @desc    Delete a model
+// @route   DELETE /api/models/:id
+const deleteModel = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await prisma.model.delete({
+      where: { id: parseInt(id) },
+    });
+
+    res.status(200).json({ message: 'Model deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting model:', error);
+    res.status(500).json({ error: 'Failed to delete model. It may be linked to existing BOMs.' });
+  }
+};
+
 module.exports = {
   createModel,
   getModels,
   getBomByModelId,
   getModelRevisions,
+  updateModel,
+  deleteModel,
 };

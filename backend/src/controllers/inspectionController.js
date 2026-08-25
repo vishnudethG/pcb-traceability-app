@@ -124,8 +124,149 @@ const saveInspectionReport = async (req, res) => {
   }
 };
 
+// @desc    Get all completed Inspection Lots (IQIR Reports)
+// @route   GET /api/inspections
+const getAllInspectionLots = async (req, res) => {
+  try {
+    const lots = await prisma.inspectionLot.findMany({
+      include: {
+        bomRevision: {
+          include: {
+            model: {
+              include: {
+                customer: true // Pulls in Company Name
+              }
+            }
+          }
+        },
+        documentSetting: true,
+        _count: {
+          select: { iqirRecords: true } // Counts how many items were inspected
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.status(200).json(lots);
+  } catch (error) {
+    console.error('Error fetching inspection lots:', error);
+    res.status(500).json({ error: 'Failed to fetch inspection reports.' });
+  }
+};
+
+// @desc    Get a single Inspection Lot by ID (for View/Edit)
+// @route   GET /api/inspections/:id
+const getInspectionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const lot = await prisma.inspectionLot.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        bomRevision: {
+          include: {
+            model: {
+              include: { customer: true }
+            }
+          }
+        },
+        documentSetting: true,
+        iqirRecords: {
+          include: {
+            bomItem: true // Pulls in target MPN, designator, etc.
+          }
+        }
+      }
+    });
+
+    if (!lot) return res.status(404).json({ error: 'Inspection report not found.' });
+    res.status(200).json(lot);
+  } catch (error) {
+    console.error('Error fetching inspection report:', error);
+    res.status(500).json({ error: 'Failed to fetch report details.' });
+  }
+};
+
+// @desc    Delete an Inspection Lot
+// @route   DELETE /api/inspections/:id
+const deleteInspection = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Because of onDelete: Cascade in the schema, this safely deletes 
+    // the header AND all the associated IqirRecords!
+    await prisma.inspectionLot.delete({
+      where: { id: parseInt(id) }
+    });
+
+    res.status(200).json({ message: 'Inspection report deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting report:', error);
+    res.status(500).json({ error: 'Failed to delete report.' });
+  }
+};
+
+// @desc    Update an existing Inspection Lot and its Records
+// @route   PUT /api/inspections/:id
+const updateInspectionReport = async (req, res) => {
+  const { id } = req.params;
+  const {
+    documentSettingId,
+    customerDcNumber,
+    workOrderNumber,
+    workOrderDate,
+    kitQuantity,
+    records 
+  } = req.body;
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Update the Header
+      const updatedLot = await tx.inspectionLot.update({
+        where: { id: parseInt(id) },
+        data: {
+          documentSettingId: parseInt(documentSettingId),
+          customerDcNumber,
+          workOrderNumber,
+          workOrderDate: new Date(workOrderDate),
+          kitQuantity: parseInt(kitQuantity)
+        }
+      });
+
+      // 2. Loop through and update the individual measured records
+      for (const r of records) {
+        await tx.iqirRecord.update({
+          where: { id: parseInt(r.id) },
+          data: {
+            receivedMake: r.receivedMake || '',
+            receivedMpn: r.receivedMpn || '',
+            measuredValue: r.measuredValue || '',
+            bodymarkPackage: r.bodymarkPackage || '',
+            dateCodeLotNumber: r.dateCodeLotNumber || '',
+            mslLevel: r.mslLevel || '',
+            measuredTolerance: r.measuredTolerance || null,
+            voltage: r.voltage || null,
+            mslLevelCondition: r.mslLevelCondition || null,
+            status: r.status,
+            remarks: r.remarks || null
+          }
+        });
+      }
+
+      return updatedLot;
+    });
+
+    res.status(200).json({ message: 'IQIR updated successfully!', lotId: result.id });
+  } catch (error) {
+    console.error('Error updating inspection:', error);
+    res.status(500).json({ error: 'Failed to update report.' });
+  }
+};
+
 module.exports = {
   getItemsByRevisionId,
   getDocumentSettings,
-  saveInspectionReport
+  saveInspectionReport,
+  getAllInspectionLots,
+  getInspectionById,
+  deleteInspection,
+  updateInspectionReport
 };

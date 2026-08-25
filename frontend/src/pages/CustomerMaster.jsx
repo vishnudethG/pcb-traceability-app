@@ -1,142 +1,249 @@
 import { useState, useEffect } from 'react';
 import { 
-  Box, Typography, Paper, TextField, Button, Grid,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, 
-  CircularProgress, Alert 
+  Box, Typography, Paper, Button, Table, TableBody, TableCell, 
+  TableContainer, TableHead, TableRow, Dialog, DialogTitle, 
+  DialogContent, DialogActions, TextField, IconButton, Alert, CircularProgress, Grid
 } from '@mui/material';
-import AddBusinessIcon from '@mui/icons-material/AddBusiness';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import api from '../services/api';
 
 const CustomerMaster = () => {
-  // Data States
   const [customers, setCustomers] = useState([]);
-  
-  // Form States
-  const [companyName, setCompanyName] = useState('');
-  const [customerCode, setCustomerCode] = useState('');
-  
-  // UI States
-  const [loadingList, setLoadingList] = useState(true); // Starts true on initial load!
-  const [submitLoading, setSubmitLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [message, setMessage] = useState(null);
 
-  // 1. Initial Data Fetch (Runs exactly once on mount)
+  // Dialog States
+  const [openForm, setOpenForm] = useState(false);
+  const [openDelete, setOpenDelete] = useState(false);
+  
+  // Action States
+  const [isEditing, setIsEditing] = useState(false);
+  const [selectedCustomerId, setSelectedCustomerId] = useState(null);
+  
+  // Form Data State
+  const initialFormState = { companyName: '', customerCode: '', contactPerson: '', email: '', phone: '', address: '' };
+  const [formData, setFormData] = useState(initialFormState);
+
+// --- Background Refresh (Used after Add/Edit/Delete) ---
+  const fetchCustomers = async () => {
+    try {
+      const res = await api.get('/customers');
+      setCustomers(res.data);
+    } catch (err) {
+      console.error(err);
+      setError('Failed to refresh customers.');
+    }
+  };
+
+  // --- Initial Page Load ---
   useEffect(() => {
-    const fetchInitialCustomers = async () => {
+    const initialLoad = async () => {
       try {
-        const response = await api.get('/customers');
-        setCustomers(response.data);
+        const res = await api.get('/customers');
+        setCustomers(res.data);
       } catch (err) {
         console.error(err);
-        setError('Failed to fetch customers. Ensure the server is running.');
+        setError('Failed to load customers.');
       } finally {
-        // Asynchronous setState inside a try/finally block is perfectly fine!
-        setLoadingList(false); 
+        setLoading(false); // Only executes after the await finishes
       }
     };
 
-    fetchInitialCustomers();
+    initialLoad();
   }, []);
 
-  // 2. Handle adding a new customer
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSubmitLoading(true);
-    setError(null);
-    setMessage(null);
+  // --- Handlers for Form Dialog ---
+  const handleOpenAdd = () => {
+    setFormData(initialFormState);
+    setIsEditing(false);
+    setOpenForm(true);
+  };
 
+  const handleOpenEdit = (customer) => {
+    setFormData({
+      companyName: customer.companyName || '',
+      customerCode: customer.customerCode || '', // ADD THIS LINE
+      contactPerson: customer.contactPerson || '',    
+      email: customer.email || '',
+      phone: customer.phone || '',
+      address: customer.address || ''
+    });
+    setSelectedCustomerId(customer.id);
+    setIsEditing(true);
+    setOpenForm(true);        
+  };
+
+  const handleCloseForm = () => {
+    setOpenForm(false);
+    setFormData(initialFormState);
+    setSelectedCustomerId(null);
+  };
+
+  const handleFormChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleSaveCustomer = async (e) => {
+    e.preventDefault();
     try {
-      // Step A: Save to database
-      await api.post('/customers', { companyName, customerCode });
-      setMessage(`Successfully added ${companyName}`);
-      
-      // Step B: Clear form
-      setCompanyName('');
-      setCustomerCode('');
-      
-      // Step C: Refresh the table data quietly in the background
-      const refreshResponse = await api.get('/customers');
-      setCustomers(refreshResponse.data);
+      if (isEditing) {
+        await api.put(`/customers/${selectedCustomerId}`, formData);
+      } else {
+        await api.post('/customers', formData);
+      }
+      handleCloseForm();
+      fetchCustomers(); // Refresh grid
     } catch (err) {
       console.error(err);
-      setError(err.response?.data?.error || 'Failed to add customer. Code or Name might already exist.');
-    } finally {
-      setSubmitLoading(false);
+      alert(`Failed to ${isEditing ? 'update' : 'add'} customer.`);
+    }
+  };
+
+  // --- Handlers for Delete Dialog ---
+  const handleOpenDelete = (id) => {
+    setSelectedCustomerId(id);
+    setOpenDelete(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    try {
+      await api.delete(`/customers/${selectedCustomerId}`);
+      setOpenDelete(false);
+      fetchCustomers(); // Refresh grid
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete customer. They may be linked to existing GRNs or Models.');
+      setOpenDelete(false);
     }
   };
 
   return (
-    <Box sx={{ mt: 4, mb: 8 }}>
-      <Typography variant="h4" gutterBottom>Customer Master List</Typography>
-      
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
+    <Box sx={{ mt: 4, mb: 8, px: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4" color="primary">Customer Master</Typography>
+        <Button 
+          variant="contained" 
+          color="primary" 
+          startIcon={<AddIcon />} 
+          onClick={handleOpenAdd}
+        >
+          Add New Customer
+        </Button>
+      </Box>
 
-      <Grid container spacing={4}>
-        {/* LEFT SIDE: ADD NEW CUSTOMER FORM */}
-        <Grid item xs={12} md={4}>
-          <Paper elevation={3} sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>Add New Customer</Typography>
-            <form onSubmit={handleSubmit}>
-              <TextField
-                label="Company Name" fullWidth margin="normal" required
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                placeholder="e.g., TechCorp Electronics"
-              />
-              <TextField
-                label="Customer Code" fullWidth margin="normal" required
-                value={customerCode}
-                onChange={(e) => setCustomerCode(e.target.value)}
-                placeholder="e.g., TC-001"
-              />
-              <Button
-                type="submit" variant="contained" color="primary" fullWidth sx={{ mt: 2 }}
-                disabled={submitLoading} startIcon={<AddBusinessIcon />}
-              >
-                {submitLoading ? 'Saving...' : 'Add Customer'}
-              </Button>
-            </form>
-          </Paper>
-        </Grid>
+      {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
-        {/* RIGHT SIDE: CUSTOMER DATA TABLE */}
-        <Grid item xs={12} md={8}>
-          <TableContainer component={Paper} elevation={3}>
-            <Table size="small">
-              <TableHead sx={{ backgroundColor: '#f5f5f5' }}>
+      {/* --- CUSTOMERS DATA GRID --- */}
+      <Paper elevation={3} sx={{ width: '100%', overflow: 'hidden' }}>
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}><CircularProgress /></Box>
+        ) : (
+          <TableContainer sx={{ maxHeight: 650 }}>
+            <Table stickyHeader>
+              <TableHead>
                 <TableRow>
-                  <TableCell><strong>ID</strong></TableCell>
-                  <TableCell><strong>Customer Code</strong></TableCell>
-                  <TableCell><strong>Company Name</strong></TableCell>
-                  <TableCell><strong>Date Added</strong></TableCell>
+                  <TableCell sx={{ backgroundColor: '#f5f5f5', fontWeight: 'bold' }}>Company Name</TableCell>
+                  <TableCell sx={{ backgroundColor: '#f5f5f5', fontWeight: 'bold' }}>Contact Person</TableCell>
+                  <TableCell sx={{ backgroundColor: '#f5f5f5', fontWeight: 'bold' }}>Email</TableCell>
+                  <TableCell sx={{ backgroundColor: '#f5f5f5', fontWeight: 'bold' }}>Phone</TableCell>
+                  <TableCell sx={{ backgroundColor: '#f5f5f5', fontWeight: 'bold', textAlign: 'center' }}>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {loadingList ? (
+                {customers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} align="center" sx={{ py: 3 }}><CircularProgress /></TableCell>
-                  </TableRow>
-                ) : customers.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} align="center" sx={{ py: 3 }}>No customers found.</TableCell>
+                    <TableCell colSpan={5} align="center" sx={{ py: 3 }}>No customers found. Click "Add New Customer" to begin.</TableCell>
                   </TableRow>
                 ) : (
                   customers.map((customer) => (
                     <TableRow key={customer.id} hover>
-                      <TableCell>{customer.id}</TableCell>
-                      <TableCell>{customer.customerCode}</TableCell>
-                      <TableCell>{customer.companyName}</TableCell>
-                      <TableCell>{new Date(customer.createdAt).toLocaleDateString()}</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>{customer.companyName}</TableCell>
+                      <TableCell>{customer.contactPerson || '-'}</TableCell>
+                      <TableCell>{customer.email || '-'}</TableCell>
+                      <TableCell>{customer.phone || '-'}</TableCell>
+                      <TableCell align="center">
+                        <IconButton color="primary" onClick={() => handleOpenEdit(customer)}>
+                          <EditIcon />
+                        </IconButton>
+                        <IconButton color="error" onClick={() => handleOpenDelete(customer.id)}>
+                          <DeleteIcon />
+                        </IconButton>
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
               </TableBody>
             </Table>
           </TableContainer>
-        </Grid>
-      </Grid>
+        )}
+      </Paper>
+
+      {/* --- ADD / EDIT FORM DIALOG --- */}
+      <Dialog open={openForm} onClose={handleCloseForm} maxWidth="sm" fullWidth>
+        <form onSubmit={handleSaveCustomer}>
+          <DialogTitle sx={{ backgroundColor: '#f5f5f5', fontWeight: 'bold', mb: 2 }}>
+            {isEditing ? 'Edit Customer' : 'Add New Customer'}
+          </DialogTitle>
+          <DialogContent>
+            <Grid container spacing={2} sx={{ mt: 1 }}>
+              <Grid item xs={12} sm={6}>
+                <TextField 
+                  name="companyName" label="Company Name" required fullWidth 
+                  value={formData.companyName} onChange={handleFormChange} 
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField 
+                  name="customerCode" label="Customer Code" required fullWidth 
+                  value={formData.customerCode} onChange={handleFormChange} 
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField 
+                  name="contactPerson" label="Contact Person" fullWidth 
+                  value={formData.contactPerson} onChange={handleFormChange} 
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField 
+                  name="phone" label="Phone Number" fullWidth 
+                  value={formData.phone} onChange={handleFormChange} 
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField 
+                  name="email" label="Email Address" type="email" fullWidth 
+                  value={formData.email} onChange={handleFormChange} 
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField 
+                  name="address" label="Company Address" multiline rows={3} fullWidth 
+                  value={formData.address} onChange={handleFormChange} 
+                />
+              </Grid>
+            </Grid>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 3 }}>
+            <Button onClick={handleCloseForm} color="inherit">Cancel</Button>
+            <Button type="submit" variant="contained" color="primary">
+              {isEditing ? 'Save Changes' : 'Create Customer'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+
+      {/* --- DELETE CONFIRMATION DIALOG --- */}
+      <Dialog open={openDelete} onClose={() => setOpenDelete(false)}>
+        <DialogTitle>Confirm Deletion</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete this customer? This action cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenDelete(false)} color="inherit">Cancel</Button>
+          <Button onClick={handleConfirmDelete} color="error" variant="contained">Delete</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

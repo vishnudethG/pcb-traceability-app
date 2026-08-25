@@ -1,18 +1,21 @@
 const express = require('express');
 const router = express.Router();
-const { createGrn, getPendingGrns, getGrnById } = require('../controllers/grnController');
-
+const { 
+  createGrn, getAllGrns, getPendingGrns, 
+  getGrnById, updateGrn, deleteGrn 
+} = require('../controllers/grnController');
 
 // Fetch pending GRNs
-router.route('/pending')
-  .get(getPendingGrns);
+router.route('/pending').get(getPendingGrns);
 
-// Fetch a single GRN by ID
-router.route('/:id')
-  .get(getGrnById);
-
-// Create a GRN
+// Standard CRUD operations
 router.route('/')
+  .get(getAllGrns)
   .post(createGrn);
+
+router.route('/:id')
+  .get(getGrnById)
+  .put(updateGrn)
+  .delete(deleteGrn);
 
 module.exports = router;

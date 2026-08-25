@@ -81,6 +81,68 @@ const uploadBom = async (req, res) => {
   }
 };
 
+// @desc    Get BOM items for a specific revision
+// @route   GET /api/boms/:id/items
+const getBomItemsByRevision = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const items = await prisma.bomItem.findMany({
+      where: { bomRevisionId: parseInt(id) },
+      orderBy: { designator: 'asc' }
+    });
+    res.status(200).json(items);
+  } catch (error) {
+    console.error('Error fetching BOM items:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+// @desc    Delete a BOM revision
+// @route   DELETE /api/boms/:id
+const deleteBomRevision = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Because of onDelete: Cascade in the schema, this will automatically 
+    // delete all the associated BomItems as well!
+    await prisma.bomRevision.delete({
+      where: { id: parseInt(id) }
+    });
+
+    res.status(200).json({ message: 'BOM Revision deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting BOM revision:', error);
+    res.status(500).json({ error: 'Failed to delete revision. It may be linked to active inspections.' });
+  }
+};
+
+// @desc    Get ALL BOM Revisions across all projects
+// @route   GET /api/boms/revisions
+const getAllBomRevisions = async (req, res) => {
+  try {
+    const revisions = await prisma.bomRevision.findMany({
+      include: {
+        model: {
+          include: {
+            customer: true // Pulls in the customer details through the model!
+          }
+        },
+        _count: {
+          select: { bomItems: true } // Counts the components
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.status(200).json(revisions);
+  } catch (error) {
+    console.error('Error fetching all BOM revisions:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 module.exports = {
   uploadBom,
+  getBomItemsByRevision,
+  deleteBomRevision,
+  getAllBomRevisions
 };

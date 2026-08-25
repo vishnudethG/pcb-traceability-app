@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { createCustomer, getCustomers } = require('../controllers/customerController');
+const { createCustomer, getCustomers, updateCustomer, deleteCustomer } = require('../controllers/customerController');
 
-// Map the routes to the controller functions
-router.route('/')
-  .post(createCustomer)
-  .get(getCustomers);
+router.post('/', createCustomer);
+router.get('/', getCustomers);
+router.put('/:id', updateCustomer);     // NEW
+router.delete('/:id', deleteCustomer);  // NEW
 
 module.exports = router;
