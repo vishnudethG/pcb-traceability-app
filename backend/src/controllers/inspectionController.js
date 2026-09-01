@@ -32,8 +32,6 @@ const getDocumentSettings = async (req, res) => {
 
 // @desc    Save complete IQIR Report & Update GRN State Machine
 // @route   POST /api/inspections
-// @desc    Save complete IQIR Report & Update GRN State Machine
-// @route   POST /api/inspections
 const saveInspectionReport = async (req, res) => {
   const {
     bomRevisionId,
@@ -43,7 +41,7 @@ const saveInspectionReport = async (req, res) => {
     workOrderDate,
     kitQuantity,
     grnId,
-    records // We now extract mapping logic directly from the records array!
+    records 
   } = req.body;
 
   try {
@@ -61,32 +59,58 @@ const saveInspectionReport = async (req, res) => {
         }
       });
 
-      // 2. Create all individual test record rows linked to this lot
-      const recordsData = records.map(r => ({
-        inspectionLotId: lot.id,
-        bomItemId: parseInt(r.bomItemId),
-        receivedMake: r.receivedMake || '',
-        receivedMpn: r.receivedMpn || '',
-        measuredValue: r.measuredValue || '',
-        bodymarkPackage: r.bodymarkPackage || '',
-        dateCodeLotNumber: r.dateCodeLotNumber || '',
-        mslLevel: r.mslLevel || '',
-        measuredTolerance: r.measuredTolerance || null,
-        voltage: r.voltage || null,
-        mslLevelCondition: r.mslLevelCondition || null,
-        inspectorId: parseInt(r.inspectorId || 1), // Default fallback to system user
-        status: r.status, 
-        remarks: r.remarks || null
-      }));
+      // 2. Prepare today's date prefix for the Traceability ID (YYMMDD)
+      const today = new Date();
+      const datePrefix = today.toISOString().slice(2, 10).replace(/-/g, ''); // e.g., "260828"
 
-      await tx.iqirRecord.createMany({ data: recordsData });
+      // 3. Create records ONE BY ONE so we can capture their DB ID and assign the Traceability ID
+      const savedRecords = [];
+      
+      for (const r of records) {
+        // First, insert the row without the traceability ID
+        const createdRecord = await tx.iqirRecord.create({
+          data: {
+            inspectionLotId: lot.id,
+            bomItemId: parseInt(r.bomItemId),
+            receivedMake: r.receivedMake || '',
+            receivedMpn: r.receivedMpn || '',
+            measuredValue: r.measuredValue || '',
+            bodymarkPackage: r.bodymarkPackage || '',
+            dateCodeLotNumber: r.dateCodeLotNumber || '',
+            mslLevel: r.mslLevel || '',
+            measuredTolerance: r.measuredTolerance || null,
+            voltage: r.voltage || null,
+            mslLevelCondition: r.mslLevelCondition || null,
+            inspectorId: parseInt(r.inspectorId || 1),
+            status: r.status, 
+            remarks: r.remarks || null
+          }
+        });
 
-      // 3. Process Physical GRN Item Status & Handle Typo Corrections
+        // If Accepted, generate and update the Traceability ID using the newly generated Row ID
+        let tId = null;
+        if (r.status === 'Accepted') {
+          tId = `TRC-${datePrefix}-${createdRecord.id}`;
+          
+          await tx.iqirRecord.update({
+            where: { id: createdRecord.id },
+            data: { traceabilityId: tId }
+          });
+        }
+        
+        // Push to array to send back to frontend for barcode printing
+        savedRecords.push({
+          ...createdRecord,
+          traceabilityId: tId,
+          printQty: r.receivedQuantity || 0 // We will need to pass this from the frontend!
+        });
+      }
+
+      // 4. Process Physical GRN Item Status & Handle Typo Corrections
       for (const r of records) {
         if (r.grnItemId && r.grnItemId !== '') {
           const updateData = { status: 'Mapped' };
           
-          // If QC flagged this as a Store typing error, permanently fix the database record!
           if (r.mapAction === 'Typo') {
             updateData.partNumber = r.receivedMpn;
           }
@@ -98,7 +122,7 @@ const saveInspectionReport = async (req, res) => {
         }
       }
 
-      // 4. Check if the GRN has any remaining physical items left unmapped
+      // 5. Check if the GRN has any remaining physical items left unmapped
       const remainingPendingItems = await tx.grnItem.count({
         where: {
           grnId: parseInt(grnId),
@@ -106,7 +130,6 @@ const saveInspectionReport = async (req, res) => {
         }
       });
 
-      // 5. If all items are accounted for, safely Close the whole delivery shipment
       if (remainingPendingItems === 0) {
         await tx.grn.update({
           where: { id: parseInt(grnId) },
@@ -114,10 +137,15 @@ const saveInspectionReport = async (req, res) => {
         });
       }
 
-      return lot;
+      // Return the generated records so the frontend knows what barcodes to print
+      return { lotId: lot.id, generatedLabels: savedRecords.filter(r => r.traceabilityId !== null) };
     });
 
-    res.status(201).json({ message: 'IQIR saved successfully!', lotId: result.id });
+    res.status(201).json({ 
+      message: 'IQIR saved successfully!', 
+      lotId: result.lotId,
+      labels: result.generatedLabels 
+    });
   } catch (error) {
     console.error('Transaction rolled back. Error saving inspection:', error);
     res.status(500).json({ error: 'Database transaction failed. Report was not saved.' });

@@ -24,6 +24,10 @@ model Customer {
   id           Int      @id @default(autoincrement())
   companyName  String   @unique @map("company_name")
   customerCode String   @unique @map("customer_code")
+  contactPerson String?  @map("contact_person")
+  email         String?  
+  phone         String?  
+  address       String?  @db.Text
   createdAt    DateTime @default(now()) @map("created_at")
   
   models       Model[]
@@ -169,6 +173,7 @@ model IqirRecord {
   id                Int           @id @default(autoincrement())
   inspectionLotId   Int           @map("inspection_lot_id")
   bomItemId         Int           @map("bom_item_id")
+  traceabilityId    String?       @unique @map("traceability_id")
   receivedMake      String        @map("received_make")
   receivedMpn       String        @map("received_mpn")
   measuredValue     String        @map("measured_value")

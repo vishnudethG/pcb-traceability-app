@@ -57,6 +57,7 @@ const IqcEdit = () => {
         const mappedRows = report.iqirRecords.map(record => ({
           id: record.id,
           bomItemId: record.bomItem.id,
+          traceabilityId: record.traceabilityId || 'N/A',
           designator: record.bomItem.designator,
           mpn: record.bomItem.mpn,
           alternativePartNo: record.bomItem.alternativePartNo || '-',
@@ -199,6 +200,7 @@ const IqcEdit = () => {
                   <TableCell sx={{ minWidth: 120, backgroundColor: '#e3f2fd' }}><strong>MSL Cond.</strong></TableCell>
                   <TableCell sx={{ minWidth: 120, backgroundColor: '#e3f2fd' }}><strong>Status</strong></TableCell>
                   <TableCell sx={{ minWidth: 250, backgroundColor: '#e3f2fd' }}><strong>Remarks</strong></TableCell>
+                  <TableCell sx={{ minWidth: 160, backgroundColor: '#e3f2fd' }}><strong>Barcode ID</strong></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -290,6 +292,12 @@ const IqcEdit = () => {
                       {isReadOnly ? <Typography variant="body2">{row.remarks || '-'}</Typography> : 
                         <TextField size="small" fullWidth value={row.remarks} 
                           onChange={(e) => handleRowChange(index, 'remarks', e.target.value)} />}
+                    </TableCell>
+
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 'bold', color: row.traceabilityId !== 'N/A' ? '#1976d2' : 'inherit' }}>
+                        {row.traceabilityId}
+                      </Typography>
                     </TableCell>
 
                   </TableRow>
